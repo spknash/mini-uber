@@ -1,7 +1,7 @@
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from pydantic import BaseModel, Field
-from sqlalchemy import Column, String, Integer, ForeignKey
+from sqlalchemy import Column, String, Integer, ForeignKey, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
@@ -11,13 +11,16 @@ Base = declarative_base()
 class Driver(Base):
     """
     SQLAlchemy model representing a driver in the system.
-    TODO: Add additional columns or constraints as needed.
+    Includes name, license number, and optional phone number
+    for contact.
     """
     __tablename__ = "drivers"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    license_number = Column(String, unique=True, index=True)
+    name = Column(String(100), nullable=False)
+    license_number = Column(String(20), unique=True, index=True, nullable=False)
+    phone_number = Column(String(20), nullable=True)
+    vehicle_info = Column(JSON, nullable=True)
 
     vehicles = relationship("Vehicle", back_populates="driver")
 
@@ -25,7 +28,7 @@ class Driver(Base):
 class Vehicle(Base):
     """
     SQLAlchemy model representing a vehicle associated with a driver.
-    TODO: Add additional columns or constraints as needed.
+    Includes information such as make, model, year, and VIN.
     """
     __tablename__ = "vehicles"
 
@@ -34,6 +37,7 @@ class Vehicle(Base):
     make = Column(String, nullable=False)
     model = Column(String, nullable=False)
     year = Column(Integer, nullable=False)
+    vin = Column(String(17), unique=True, index=True, nullable=True)
 
     driver = relationship("Driver", back_populates="vehicles")
 
@@ -50,15 +54,18 @@ class DriverCreate(DriverBase):
     """
     Pydantic model for creating a new driver entry.
     """
-    pass
+    vehicle_info: Optional[Dict[str, Any]] = Field(None, description="The vehicle information")
 
 
-class DriverUpdate(DriverBase):
+class DriverUpdate(BaseModel):
     """
     Pydantic model for updating an existing driver entry.
-    TODO: Extend with any optional fields if necessary.
+    Fields are optional to allow partial updates.
     """
-    pass
+    name: Optional[str] = Field(None, description="The name of the driver")
+    license_number: Optional[str] = Field(None, description="The license number of the driver")
+    phone_number: Optional[str] = Field(None, description="The phone number of the driver, if available")
+    vehicle_info: Optional[Dict[str, Any]] = Field(None, description="The vehicle information")
 
 
 class DriverInDB(DriverBase):
@@ -66,6 +73,7 @@ class DriverInDB(DriverBase):
     Pydantic model for representing a driver entry in the database.
     """
     id: int = Field(..., description="The unique identifier of the driver")
+    vehicle_info: Optional[Dict[str, Any]] = Field(None, description="The vehicle information")
 
     class Config:
         orm_mode = True
@@ -87,12 +95,15 @@ class VehicleCreate(VehicleBase):
     pass
 
 
-class VehicleUpdate(VehicleBase):
+class VehicleUpdate(BaseModel):
     """
     Pydantic model for updating an existing vehicle entry.
-    TODO: Extend with any optional fields if necessary.
+    Fields are optional to allow partial updates.
     """
-    pass
+    make: Optional[str] = Field(None, description="The make of the vehicle")
+    model: Optional[str] = Field(None, description="The model of the vehicle")
+    year: Optional[int] = Field(None, description="The year of the vehicle")
+    vin: Optional[str] = Field(None, description="The vehicle identification number (VIN)")
 
 
 class VehicleInDB(VehicleBase):

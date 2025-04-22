@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, conint, Field
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, CheckConstraint
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -22,21 +22,32 @@ class RatingBase(BaseModel):
     Defines shared fields and validation logic.
     """
 
-    rating_value: conint(ge=1, le=5) = Field(
+    ride_id: Optional[int] = None
+    rating: conint(ge=1, le=5) = Field(
         ...,
         description="Value of the rating on a scale of 1 (lowest) to 5 (highest)."
+    )
+    review: Optional[str] = Field(
+        None,
+        description="Optional text review accompanying the rating."
+    )
+    rating_value: Optional[conint(ge=1, le=5)] = Field(
+        None,
+        description="Alternative field name for rating value on a scale of 1 (lowest) to 5 (highest)."
     )
     review_text: Optional[str] = Field(
         None,
         description="Optional text review accompanying the rating."
     )
+    comment: Optional[str] = None
 
 
 class RatingCreate(RatingBase):
     """
     Pydantic model for creating a new rating.
-    Extends RatingBase with fields needed at creation (if any).
+    Extends RatingBase with additional fields needed at creation.
     """
+
     reviewer_id: Optional[int] = Field(
         None,
         description="Identifier for the user posting the rating."
@@ -57,6 +68,8 @@ class RatingORM(Base):
     """
     SQLAlchemy ORM model for ratings.
     Maps Python objects to database records in the 'ratings' table.
+    Provides a reference to the reviewer (User) if such relationship exists.
+    Ensures rating_value is within the acceptable range via a CHECK constraint.
     """
 
     __tablename__ = "ratings"
@@ -67,10 +80,11 @@ class RatingORM(Base):
     reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
-    # TODO: Define relationship to User if needed in the future
-    reviewer = relationship("User", back_populates="ratings", lazy="joined", uselist=False)
+    __table_args__ = (
+        CheckConstraint('rating_value >= 1 AND rating_value <= 5', name='ck_rating_value_range'),
+    )
 
-    # TODO: Add error handling or custom validation if necessary for complex logic
+    reviewer = relationship("User", back_populates="ratings", lazy="joined", uselist=False)
 
 
 class ReviewBase(BaseModel):
@@ -86,8 +100,9 @@ class ReviewBase(BaseModel):
 class ReviewCreate(ReviewBase):
     """
     Pydantic model for creating a new review.
-    Extends ReviewBase with fields needed at creation (if any).
+    Extends ReviewBase with additional fields needed at creation.
     """
+
     reviewer_id: Optional[int] = Field(
         None,
         description="Identifier for the user posting the review."
@@ -108,6 +123,7 @@ class ReviewORM(Base):
     """
     SQLAlchemy ORM model for reviews.
     Maps Python objects to database records in the 'reviews' table.
+    Provides a reference to the reviewer (User) if such a relationship exists.
     """
 
     __tablename__ = "reviews"
@@ -118,9 +134,4 @@ class ReviewORM(Base):
     reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
-    # TODO: Define relationship to User if needed in the future
     reviewer = relationship("User", back_populates="reviews", lazy="joined", uselist=False)
-
-    # TODO: Add error handling or custom validation if necessary for complex logic
-
-    # TODO: Implement methods for CRUD operations if required in future development

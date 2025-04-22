@@ -13,7 +13,8 @@ class Rider(Base):
     __tablename__ = "riders"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False)
+    first_name = Column(String(50), nullable=False)
+    last_name = Column(String(50), nullable=False)
     email = Column(String(255), unique=True, index=True, nullable=False)
     phone_number = Column(String(20), unique=True, index=True, nullable=True)
     is_active = Column(Boolean, default=True)
@@ -23,7 +24,8 @@ class RiderBase(BaseModel):
     """
     Shared base model for rider data.
     """
-    name: str = Field(..., max_length=100)
+    first_name: str = Field(..., max_length=50)
+    last_name: str = Field(..., max_length=50)
     email: EmailStr
     phone_number: Optional[str] = None
     is_active: bool = True
@@ -32,15 +34,21 @@ class RiderBase(BaseModel):
 class RiderCreate(RiderBase):
     """
     Model for creating a new rider.
+    Currently no additional fields are required beyond RiderBase.
     """
-    # TODO: Add additional fields or validations specific to rider creation if needed
+    pass
 
 
 class RiderUpdate(RiderBase):
     """
     Model for updating rider data.
+    All fields are optional here to allow partial updates.
     """
-    # TODO: Add fields or validations for partially updating rider data if needed
+    first_name: Optional[str] = Field(None, max_length=50)
+    last_name: Optional[str] = Field(None, max_length=50)
+    email: Optional[EmailStr] = None
+    phone_number: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 class RiderInDB(RiderBase):
@@ -50,4 +58,5 @@ class RiderInDB(RiderBase):
     id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+        populate_by_name = True

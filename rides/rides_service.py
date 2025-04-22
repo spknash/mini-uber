@@ -9,6 +9,11 @@ class RideServiceError(Exception):
     """
     pass
 
+# In-memory data store simulations
+RIDES_DB = {}
+AVAILABLE_DRIVERS = ["driver123", "driver456", "driver789"]
+CURRENT_RIDE_ID = 0
+
 def create_ride(rider_id: str, pickup_location: Dict[str, Any], dropoff_location: Dict[str, Any]) -> int:
     """
     Creates a new ride record.
@@ -24,14 +29,25 @@ def create_ride(rider_id: str, pickup_location: Dict[str, Any], dropoff_location
     Raises:
         RideServiceError: If the ride cannot be created.
     """
-    # TODO: Implement the logic to create a new ride record in the data store.
-    #       1. Validate inputs.
-    #       2. Insert a new record into the database (or other storage).
-    #       3. Return the unique ride identifier.
     logger.debug("Attempting to create a new ride for rider_id=%s", rider_id)
     try:
-        # Example placeholder logic
-        new_ride_id = 1  # Dummy value
+        # Validate input
+        if not rider_id or not pickup_location or not dropoff_location:
+            raise ValueError("Rider ID, pickup location, and dropoff location are required.")
+
+        global CURRENT_RIDE_ID
+        CURRENT_RIDE_ID += 1
+        new_ride_id = CURRENT_RIDE_ID
+
+        # Create a new ride record in the in-memory datastore
+        RIDES_DB[new_ride_id] = {
+            "rider_id": rider_id,
+            "pickup_location": pickup_location,
+            "dropoff_location": dropoff_location,
+            "status": "created",
+            "driver_id": None
+        }
+
         logger.info("Created a new ride with ID %s", new_ride_id)
         return new_ride_id
     except Exception as e:
@@ -51,16 +67,29 @@ def assign_driver_to_ride(ride_id: int) -> Optional[str]:
     Raises:
         RideServiceError: If there is an issue assigning a driver.
     """
-    # TODO: Implement logic to find an available driver and update the ride record with the driver ID.
-    #       1. Query for an available driver.
-    #       2. Assign the driver to the ride.
-    #       3. Return the driver_id or None if no driver is available.
     logger.debug("Attempting to assign a driver to ride_id=%s", ride_id)
     try:
-        # Example placeholder logic
-        available_driver_id = "driver123"  # Dummy value
-        logger.info("Assigned driver %s to ride %s", available_driver_id, ride_id)
-        return available_driver_id
+        if ride_id not in RIDES_DB:
+            raise ValueError(f"Ride with ID {ride_id} does not exist.")
+
+        # Retrieve ride info
+        ride_info = RIDES_DB[ride_id]
+
+        # Check if ride already has a driver assigned
+        if ride_info.get("driver_id"):
+            logger.info("Ride %s already has a driver assigned: %s", ride_id, ride_info["driver_id"])
+            return ride_info["driver_id"]
+
+        # Find an available driver (if any)
+        if not AVAILABLE_DRIVERS:
+            logger.info("No drivers available at the moment.")
+            return None
+
+        driver_id = AVAILABLE_DRIVERS.pop(0)  # Assign the first available driver
+        ride_info["driver_id"] = driver_id
+        ride_info["status"] = "driver_assigned"
+        logger.info("Assigned driver %s to ride %s", driver_id, ride_id)
+        return driver_id
     except Exception as e:
         logger.error("Failed to assign driver to ride %s: %s", ride_id, e)
         raise RideServiceError("Could not assign a driver to the ride") from e
@@ -81,16 +110,16 @@ def update_ride_status(ride_id: int, new_status: str) -> None:
     Raises:
         RideServiceError: If the status update fails or the status is invalid.
     """
-    # TODO: Implement logic to update the ride's status in the data store.
-    #       1. Validate the new status (ensure it's one of the allowable values).
-    #       2. Update the status in the database (or other storage).
     logger.debug("Attempting to update ride_id=%s to status=%s", ride_id, new_status)
     try:
+        if ride_id not in RIDES_DB:
+            raise ValueError(f"Ride with ID {ride_id} does not exist.")
+
         allowed_statuses = ["in-progress", "completed", "canceled"]
         if new_status not in allowed_statuses:
             raise ValueError(f"Invalid status: {new_status}")
 
-        # Example placeholder logic
+        RIDES_DB[ride_id]["status"] = new_status
         logger.info("Ride %s status updated to %s", ride_id, new_status)
     except Exception as e:
         logger.error("Failed to update ride status for ride %s: %s", ride_id, e)

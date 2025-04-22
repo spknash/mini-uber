@@ -1,8 +1,12 @@
 from datetime import datetime
 from typing import Optional
+import logging
+
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
 from sqlalchemy.orm import declarative_base, relationship, Session
 from sqlalchemy.exc import SQLAlchemyError
+
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -19,13 +23,13 @@ class PaymentRecord(Base):
     status: str = Column(String(50), nullable=False)  # e.g., 'pending', 'completed', 'failed'
     created_at: datetime = Column(DateTime, default=datetime.utcnow)
 
-    # TODO: Add foreign key relationship to user if needed
-    # user = relationship("User", back_populates="payment_records")
+    # Relationship to the User model (assuming a User model with "payment_records" back_populates exists)
+    user = relationship("User", back_populates="payment_records")
 
     def __init__(self, user_id: int, amount: float, status: str) -> None:
         """
         Initializes a PaymentRecord instance.
-
+        
         :param user_id: The ID of the user making the payment.
         :param amount: The amount being paid.
         :param status: The status of the payment.
@@ -44,15 +48,16 @@ class FareLog(Base):
     id: int = Column(Integer, primary_key=True, index=True)
     user_id: int = Column(Integer, ForeignKey("users.id"), nullable=False)
     fare_amount: float = Column(Float, nullable=False)
-    description: str = Column(String(255), nullable=True)
+    description: Optional[str] = Column(String(255), nullable=True)
     created_at: datetime = Column(DateTime, default=datetime.utcnow)
 
-    # TODO: Add any additional relationships or constraints
+    # Relationship to the User model (assuming a User model with "fare_logs" back_populates exists)
+    user = relationship("User", back_populates="fare_logs")
 
     def __init__(self, user_id: int, fare_amount: float, description: Optional[str] = None) -> None:
         """
         Initializes a FareLog instance.
-
+        
         :param user_id: The ID of the user associated with the fare.
         :param fare_amount: The amount for the fare.
         :param description: Additional details about the fare.
@@ -74,13 +79,13 @@ class PayoutDetail(Base):
     payout_method: str = Column(String(50), nullable=False)  # e.g., 'bank_transfer', 'paypal'
     processed_at: datetime = Column(DateTime, default=datetime.utcnow)
 
-    # TODO: Add foreign key relationship to user if needed
-    # payee = relationship("User", back_populates="payout_details")
+    # Relationship to the User model (assuming a User model with "payout_details" back_populates exists)
+    payee = relationship("User", back_populates="payout_details")
 
     def __init__(self, payee_id: int, payout_amount: float, payout_method: str) -> None:
         """
         Initializes a PayoutDetail instance.
-
+        
         :param payee_id: The ID of the payee receiving the payout.
         :param payout_amount: The amount being paid out.
         :param payout_method: The method used to complete the payout.
@@ -100,5 +105,5 @@ def create_all_tables(session: Session) -> None:
     try:
         Base.metadata.create_all(bind=session.get_bind())
     except SQLAlchemyError as error:
-        # TODO: Add proper logging here
+        logger.error("Failed to create all tables.", exc_info=True)
         raise error from error
