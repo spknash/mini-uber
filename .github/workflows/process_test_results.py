@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import subprocess
+import re
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
@@ -25,31 +26,42 @@ def parse_pytest_output(stdout: str) -> List[Dict[str, Any]]:
     results = []
     timestamp = datetime.now(timezone.utc).isoformat()
     
+    # Regular expression to match pytest output lines
+    # Example: test_file.py::test_function PASSED
+    test_pattern = re.compile(r'^(.+?)\s+(PASSED|FAILED|SKIPPED|ERROR|XFAIL|XPASS)(?:\s+\[.*?\])?$')
+    
     # Split output into lines and process each test result
     for line in stdout.split('\n'):
-        if not line.strip() or '::' not in line:
+        line = line.strip()
+        if not line:
+            continue
+            
+        match = test_pattern.match(line)
+        if not match:
             continue
             
         try:
-            # Parse test path and result
-            test_path, result = line.strip().rsplit(' ', 1)
-            test_parts = test_path.split('::')
+            test_path = match.group(1)
+            result = match.group(2)
             
-            # Extract module and test name
-            file_path = test_parts[0].strip()
-            test_name = test_parts[-1] if len(test_parts) > 1 else "unknown"
+            # Split test path into components
+            path_parts = test_path.split('::')
+            file_path = path_parts[0]
+            test_name = path_parts[-1] if len(path_parts) > 1 else "unknown"
             
             # Extract module and category from file path
-            path_parts = file_path.split('/')
-            module = path_parts[1] if len(path_parts) > 1 else "unknown"
-            category = path_parts[2] if len(path_parts) > 2 else "unknown"
+            path_components = file_path.split('/')
+            module = path_components[1] if len(path_components) > 1 else "unknown"
+            category = path_components[2] if len(path_components) > 2 else "unknown"
             
             # Map pytest result to status
             status_map = {
                 "PASSED": "passed",
                 "FAILED": "failed",
                 "SKIPPED": "skipped",
-                "ERROR": "error"
+                "ERROR": "error",
+                "XFAIL": "expected_failure",
+                "XPASS": "unexpected_pass"
             }
             status = status_map.get(result, "unknown")
             
@@ -58,12 +70,14 @@ def parse_pytest_output(stdout: str) -> List[Dict[str, Any]]:
                 "category": category,
                 "test_name": test_name,
                 "status": status,
-                "output": line.strip(),
+                "output": line,
                 "attempted_at": timestamp,
                 "completed_at": timestamp
             })
             
         except Exception as e:
+            print(f"Error parsing line: {line}", file=sys.stderr)
+            print(f"Error details: {str(e)}", file=sys.stderr)
             results.append({
                 "module": "error",
                 "category": "error",
@@ -76,12 +90,14 @@ def parse_pytest_output(stdout: str) -> List[Dict[str, Any]]:
     
     # If no results were parsed, add an error entry
     if not results:
+        print("No test results found in output:", file=sys.stderr)
+        print(stdout, file=sys.stderr)
         results.append({
             "module": "error",
             "category": "error",
             "test_name": "no_tests",
             "status": "error",
-            "output": f"No test results found in output:\n{stdout}",
+            "output": f"No test results found in output:\n{stdout[:1000]}...",  # Truncate very long output
             "attempted_at": timestamp,
             "completed_at": timestamp
         })
@@ -91,6 +107,7 @@ def parse_pytest_output(stdout: str) -> List[Dict[str, Any]]:
 def upload_to_supabase(results: List[Dict[str, Any]]) -> bool:
     """Upload results to Supabase."""
     import requests
+    from requests.exceptions import RequestException
     
     try:
         url = "https://xqfwqvbfjhxwqgrdcjck.supabase.co/rest/v1/user_projects"
@@ -106,26 +123,47 @@ def upload_to_supabase(results: List[Dict[str, Any]]) -> bool:
             "tests_status": results
         }
         
-        response = requests.post(url, headers=headers, json=data)
+        # Print request data for debugging
+        print("\nSending to Supabase:", file=sys.stderr)
+        print(f"URL: {url}", file=sys.stderr)
+        print("Data:", json.dumps(data, indent=2), file=sys.stderr)
+        
+        response = requests.post(url, headers=headers, json=data, timeout=30)
+        
+        print(f"\nSupabase Response:", file=sys.stderr)
+        print(f"Status Code: {response.status_code}", file=sys.stderr)
+        print(f"Response Body: {response.text}", file=sys.stderr)
         
         if response.status_code not in (200, 201):
-            print(f"Error uploading to Supabase. Status code: {response.status_code}")
-            print(f"Response: {response.text}")
+            print(f"Error uploading to Supabase. Status code: {response.status_code}", file=sys.stderr)
+            print(f"Response: {response.text}", file=sys.stderr)
             return False
             
         return True
         
+    except RequestException as e:
+        print(f"Network error while uploading to Supabase: {str(e)}", file=sys.stderr)
+        return False
     except Exception as e:
-        print(f"Failed to upload to Supabase: {str(e)}")
+        print(f"Unexpected error while uploading to Supabase: {str(e)}", file=sys.stderr)
         return False
 
 def main():
     """Main function to run tests and process results."""
     try:
         # Run pytest and collect output
+        print("Running pytest...", file=sys.stderr)
         exit_code, stdout, stderr = run_pytest()
         
+        # Print raw output for debugging
+        print("\nPytest Output:", file=sys.stderr)
+        print(stdout, file=sys.stderr)
+        if stderr:
+            print("\nPytest Errors:", file=sys.stderr)
+            print(stderr, file=sys.stderr)
+        
         # Parse the output into our format
+        print("\nParsing test results...", file=sys.stderr)
         results = parse_pytest_output(stdout)
         
         # If there was an error running pytest, add it to results
@@ -141,18 +179,21 @@ def main():
                 "completed_at": timestamp
             })
         
-        # Print results to stdout (for logging)
-        print("Test Results:")
-        print(json.dumps(results, indent=2))
+        # Print parsed results
+        print("\nParsed Test Results:", file=sys.stderr)
+        print(json.dumps(results, indent=2), file=sys.stderr)
         
         # Upload results to Supabase
+        print("\nUploading results to Supabase...", file=sys.stderr)
         if upload_to_supabase(results):
-            print("Successfully uploaded results to Supabase")
+            print("Successfully uploaded results to Supabase", file=sys.stderr)
+            print(json.dumps(results, indent=2))  # Print to stdout for workflow
         else:
-            print("Failed to upload results to Supabase")
+            print("Failed to upload results to Supabase", file=sys.stderr)
             sys.exit(1)
         
     except Exception as e:
+        print(f"Unexpected error: {str(e)}", file=sys.stderr)
         timestamp = datetime.now(timezone.utc).isoformat()
         error_result = [{
             "module": "error",
