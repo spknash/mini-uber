@@ -2,151 +2,223 @@ name: Run Tests
 
 on:
   push:
-    branches: [ main, master ]
+    branches: 
+      - main
+      - master
   pull_request:
-    branches: [ main, master ]
+    branches: 
+      - main
+      - master
 
 jobs:
   test:
+    name: Run Python Tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: write
+    
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
       
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+          cache: 'pip'
           
       - name: Install Python dependencies
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pytest pytest-json-report requests
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          fi
+          pip install pytest==7.4.3 pytest-json-report==1.5.0 requests==2.31.0
 
       - name: Run Python tests
         env:
-          TIMESTAMP: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          TIMESTAMP: "${{ steps.timestamp.outputs.timestamp }}"
         run: |
+          set -euo pipefail
+          
+          # Set timestamp
+          echo "TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_ENV
+          
           echo "Running pytest on all tests..."
           
-          # Run pytest with JSON reporting
-          pytest tests/ --json-report --json-report-file=report.json -v | tee test_output.txt || true
+          # Create test output directory
+          mkdir -p test_output
           
-          # Initialize results array
-          echo "[" > test_results.json
+          # Run pytest with JSON reporting
+          pytest tests/ \
+            --json-report \
+            --json-report-file="test_output/report.json" \
+            -v 2>&1 | tee test_output/test_output.txt || true
+          
+          # Initialize results array with proper JSON structure
+          echo "[" > test_output/test_results.json
           first_entry=true
           
-          # Function to add a test result
+          # Function to safely add a test result
           add_test_result() {
-            local module="$1"
-            local category="$2"
-            local test_name="$3"
-            local status="$4"
-            local output="$5"
+            local module="${1:-unknown}"
+            local category="${2:-unknown}"
+            local test_name="${3:-unknown}"
+            local status="${4:-unknown}"
+            local output="${5:-No output available}"
+            local timestamp
+            timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
             
             if [ "$first_entry" = "true" ]; then
               first_entry=false
             else
-              echo "," >> test_results.json
+              echo "," >> test_output/test_results.json
             fi
             
-            # Escape the test output for JSON
+            # Escape the test output for JSON using Python's json module
             escaped_output=$(echo "$output" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
             
-            cat >> test_results.json << 'JSONENTRY'
+            # Create the JSON entry with proper escaping
+            cat << EOF >> test_output/test_results.json
 {
-  "module": "${module}",
-  "category": "${category}",
-  "test_name": "${test_name}",
-  "status": "${status}",
-  "output": ${escaped_output},
-  "attempted_at": "${TIMESTAMP}",
-  "completed_at": "${TIMESTAMP}"
+  "module": $(echo "$module" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))'),
+  "category": $(echo "$category" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))'),
+  "test_name": $(echo "$test_name" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))'),
+  "status": $(echo "$status" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))'),
+  "output": $escaped_output,
+  "attempted_at": "$timestamp",
+  "completed_at": "$timestamp"
 }
-JSONENTRY
+EOF
           }
           
-          if [ -f "report.json" ]; then
+          if [ -f "test_output/report.json" ]; then
             echo "Processing test results from report.json..."
             
-            # Parse the JSON report and extract test results
-            python3 << 'PYTHONSCRIPT' >> test_results.json
+            # Parse the JSON report using a safer Python script
+            python3 << 'PYTHONSCRIPT'
 import json
 import os
+import sys
 from pathlib import Path
+from datetime import datetime, timezone
 
-def get_module_category(nodeid):
-    parts = nodeid.split("::", 1)[0].split("/")
-    if len(parts) >= 4:
-        return parts[1], parts[2]
-    return "unknown", "unknown"
+def safe_get_module_category(nodeid):
+    try:
+        parts = nodeid.split("::", 1)[0].split("/")
+        if len(parts) >= 4:
+            return parts[1], parts[2]
+        return "unknown", "unknown"
+    except Exception:
+        return "unknown", "unknown"
 
-with open("report.json") as f:
-    report = json.load(f)
-
-with open("test_results.json") as f:
-    content = f.read().strip()
-    first = content == "["
-    if not first:
-        print(",")
-
-for test in report.get("tests", []):
-    module, category = get_module_category(test["nodeid"])
-    name = test["nodeid"].split("::")[-1]
-    status = "passed" if test["outcome"] == "passed" else "failed"
-    output = test.get("call", {}).get("longrepr", "No detailed output available")
+try:
+    with open("test_output/report.json") as f:
+        report = json.load(f)
     
-    result = {
-        "module": module,
-        "category": category,
-        "test_name": name,
-        "status": status,
-        "output": output,
-        "attempted_at": os.environ["TIMESTAMP"],
-        "completed_at": os.environ["TIMESTAMP"]
-    }
+    with open("test_output/test_results.json") as f:
+        content = f.read().strip()
+        first = content == "["
     
-    if not first:
-        print(",")
-    print(json.dumps(result))
-    first = False
+    timestamp = datetime.now(timezone.utc).isoformat()
+    
+    for test in report.get("tests", []):
+        try:
+            module, category = safe_get_module_category(test.get("nodeid", ""))
+            name = test.get("nodeid", "unknown").split("::")[-1]
+            status = "passed" if test.get("outcome") == "passed" else "failed"
+            output = test.get("call", {}).get("longrepr", "No detailed output available")
+            
+            result = {
+                "module": module,
+                "category": category,
+                "test_name": name,
+                "status": status,
+                "output": str(output),
+                "attempted_at": timestamp,
+                "completed_at": timestamp
+            }
+            
+            if not first:
+                print(",")
+            json.dump(result, sys.stdout, ensure_ascii=True)
+            first = False
+            
+        except Exception as e:
+            print(json.dumps({
+                "module": "error",
+                "category": "error",
+                "test_name": "error_processing_test",
+                "status": "error",
+                "output": f"Error processing test result: {str(e)}",
+                "attempted_at": timestamp,
+                "completed_at": timestamp
+            }), file=sys.stderr)
+            
+except Exception as e:
+    print(json.dumps({
+        "module": "error",
+        "category": "error",
+        "test_name": "error_processing_report",
+        "status": "error",
+        "output": f"Error processing report.json: {str(e)}",
+        "attempted_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": datetime.now(timezone.utc).isoformat()
+    }), file=sys.stderr)
 PYTHONSCRIPT
           else
             echo "No test report found"
             add_test_result "unknown" "unknown" "No Tests Found" "not_attempted" "No test report was generated"
           fi
           
-          echo "]" >> test_results.json
+          echo "]" >> test_output/test_results.json
           
           echo "Final test results:"
-          cat test_results.json
+          cat test_output/test_results.json
           
-          # Upload results to Supabase
+          # Upload results to Supabase with error handling
           echo "Uploading results to Supabase..."
           
-          # Create the JSON payload
-          json_data=$(cat << 'JSONPAYLOAD'
-{
-  "id": "4600c943-a7f9-4efc-ad50-615921f9bf00",
-  "tests_status": $(cat test_results.json)
-}
-JSONPAYLOAD
-)
+          # Validate JSON before sending
+          if ! jq empty test_output/test_results.json 2>/dev/null; then
+            echo "Error: Invalid JSON generated"
+            exit 1
+          fi
           
-          # Send the request
-          curl -X POST 'https://xqfwqvbfjhxwqgrdcjck.supabase.co/rest/v1/user_projects' \
+          # Create the JSON payload with proper escaping
+          json_payload=$(jq -n \
+            --arg id "4600c943-a7f9-4efc-ad50-615921f9bf00" \
+            --slurpfile tests test_output/test_results.json \
+            '{id: $id, tests_status: $tests[0]}')
+          
+          # Send the request with proper error handling
+          response=$(curl -s -w "\n%{http_code}" -X POST \
+            'https://xqfwqvbfjhxwqgrdcjck.supabase.co/rest/v1/user_projects' \
             -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxZndxdmJmamh4d3FncmRjamNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDI5MjE5NDEsImV4cCI6MjAxODQ5Nzk0MX0.ZNgjwuqmwXGdWwx3xV6EXG8pGHvpAxDOQOADxgMFSXc" \
             -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxZndxdmJmamh4d3FncmRjamNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDI5MjE5NDEsImV4cCI6MjAxODQ5Nzk0MX0.ZNgjwuqmwXGdWwx3xV6EXG8pGHvpAxDOQOADxgMFSXc" \
             -H "Content-Type: application/json" \
             -H "Prefer: return=minimal" \
-            --data "$json_data"
+            --data "$json_payload")
+          
+          http_code=$(echo "$response" | tail -n1)
+          response_body=$(echo "$response" | sed '$d')
+          
+          if [ "$http_code" -ne 201 ] && [ "$http_code" -ne 200 ]; then
+            echo "Error uploading to Supabase. Status code: $http_code"
+            echo "Response: $response_body"
+            exit 1
+          fi
 
       - name: Notify completion
         if: always()
         run: |
+          set -euo pipefail
           echo "Test run completed. Results have been uploaded to Supabase."
-          echo "Test output:"
-          cat test_output.txt || echo "No test output available" 
+          if [ -f "test_output/test_output.txt" ]; then
+            echo "Test output:"
+            cat test_output/test_output.txt
+          else
+            echo "No test output available"
+          fi 
