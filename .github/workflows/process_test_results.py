@@ -106,18 +106,15 @@ def parse_pytest_output(stdout: str) -> List[Dict[str, Any]]:
     return results
 
 def upload_to_supabase(results: List[Dict[str, Any]]) -> bool:
-    """Upload results to Supabase."""
+    """Upload results to Supabase through Next.js API."""
     import requests
     from requests.exceptions import RequestException
     
     try:
-        # Use HTTPS for the URL
-        url = "https://xqfwqvbfjhxwqgrdcjck.supabase.co/rest/v1/rpc/update_test_results"
+        # Use the Next.js API endpoint
+        url = "http://localhost:3000/api/test-results"
         headers = {
-            "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxZndxdmJmamh4d3FncmRjamNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDI5MjE5NDEsImV4cCI6MjAxODQ5Nzk0MX0.ZNgjwuqmwXGdWwx3xV6EXG8pGHvpAxDOQOADxgMFSXc",
-            "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxZndxdmJmamh4d3FncmRjamNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDI5MjE5NDEsImV4cCI6MjAxODQ5Nzk0MX0.ZNgjwuqmwXGdWwx3xV6EXG8pGHvpAxDOQOADxgMFSXc",
-            "Content-Type": "application/json",
-            "Prefer": "return=minimal"
+            "Content-Type": "application/json"
         }
         
         # Convert test results to JSONB array format as expected by the database
@@ -137,40 +134,39 @@ def upload_to_supabase(results: List[Dict[str, Any]]) -> bool:
         # Create the update data
         data = {
             "id": "4600c943-a7f9-4efc-ad50-615921f9bf00",
-            "tests_status": tests_status,
-            "updated_at": datetime.now(timezone.utc).isoformat()
+            "tests_status": tests_status
         }
         
         # Print request data for debugging
-        print("\nSending to Supabase:", file=sys.stderr)
+        print("\nSending to API:", file=sys.stderr)
         print(f"URL: {url}", file=sys.stderr)
         print("Headers:", json.dumps(headers, indent=2), file=sys.stderr)
         print("Data:", json.dumps(data, indent=2), file=sys.stderr)
         
         # Make the request with a timeout
-        response = requests.patch(
+        response = requests.post(
             url, 
             headers=headers,
             json=data,
             timeout=30
         )
         
-        print(f"\nSupabase Response:", file=sys.stderr)
+        print(f"\nAPI Response:", file=sys.stderr)
         print(f"Status Code: {response.status_code}", file=sys.stderr)
         print(f"Response Body: {response.text}", file=sys.stderr)
         
         if response.status_code not in (200, 201, 204):
-            print(f"Error uploading to Supabase. Status code: {response.status_code}", file=sys.stderr)
+            print(f"Error uploading to API. Status code: {response.status_code}", file=sys.stderr)
             print(f"Response: {response.text}", file=sys.stderr)
             return False
             
         return True
         
     except RequestException as e:
-        print(f"Network error while uploading to Supabase: {str(e)}", file=sys.stderr)
+        print(f"Network error while uploading to API: {str(e)}", file=sys.stderr)
         return False
     except Exception as e:
-        print(f"Unexpected error while uploading to Supabase: {str(e)}", file=sys.stderr)
+        print(f"Unexpected error while uploading to API: {str(e)}", file=sys.stderr)
         return False
 
 def main():
