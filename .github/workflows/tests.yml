@@ -58,10 +58,10 @@ jobs:
             -v 2>&1 | tee test_output/test_output.txt || true
           
           # Make the Python script executable
-          chmod +x process_test_results.py
+          chmod +x .github/workflows/process_test_results.py
           
           # Process test results using the Python script
-          ./process_test_results.py > test_output/test_results.json
+          .github/workflows/process_test_results.py > test_output/test_results.json
           
           echo "Final test results:"
           cat test_output/test_results.json
