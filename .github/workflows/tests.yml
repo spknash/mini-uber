@@ -56,7 +56,7 @@ jobs:
             # Escape the test output for JSON
             escaped_output=$(echo "$output" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
             
-            cat >> test_results.json << EOF
+            cat >> test_results.json << 'JSONENTRY'
 {
   "module": "${module}",
   "category": "${category}",
@@ -66,50 +66,39 @@ jobs:
   "attempted_at": "${TIMESTAMP}",
   "completed_at": "${TIMESTAMP}"
 }
-EOF
+JSONENTRY
           }
           
           if [ -f "report.json" ]; then
             echo "Processing test results from report.json..."
             
             # Parse the JSON report and extract test results
-            python3 << 'EOF' >> test_results.json
+            python3 << 'PYTHONSCRIPT' >> test_results.json
 import json
 import os
 from pathlib import Path
 
 def get_module_category(nodeid):
-    # Convert test path to parts
-    # Example: tests/module1/category1/test_feature.py::test_something
-    # becomes module=module1, category=category1
     parts = nodeid.split("::", 1)[0].split("/")
     if len(parts) >= 4:
-        return parts[1], parts[2]  # module, category
+        return parts[1], parts[2]
     return "unknown", "unknown"
 
-# Read the report
 with open("report.json") as f:
     report = json.load(f)
 
-# Read existing results file
 with open("test_results.json") as f:
     content = f.read().strip()
-    if content == "[":  # If only opening bracket
-        first = True
-    else:
-        first = False
-        print(",")  # Add comma for new entries
+    first = content == "["
+    if not first:
+        print(",")
 
-# Process each test
 for test in report.get("tests", []):
     module, category = get_module_category(test["nodeid"])
     name = test["nodeid"].split("::")[-1]
     status = "passed" if test["outcome"] == "passed" else "failed"
-    
-    # Get the test output
     output = test.get("call", {}).get("longrepr", "No detailed output available")
     
-    # Create the test result entry
     result = {
         "module": module,
         "category": category,
@@ -120,12 +109,11 @@ for test in report.get("tests", []):
         "completed_at": os.environ["TIMESTAMP"]
     }
     
-    # Print the entry
     if not first:
         print(",")
     print(json.dumps(result))
     first = False
-EOF
+PYTHONSCRIPT
           else
             echo "No test report found"
             add_test_result "unknown" "unknown" "No Tests Found" "not_attempted" "No test report was generated"
@@ -139,13 +127,13 @@ EOF
           # Upload results to Supabase
           echo "Uploading results to Supabase..."
           
-          # Create the JSON payload properly
-          json_data=$(cat << EOF
+          # Create the JSON payload
+          json_data=$(cat << 'JSONPAYLOAD'
 {
   "id": "4600c943-a7f9-4efc-ad50-615921f9bf00",
   "tests_status": $(cat test_results.json)
 }
-EOF
+JSONPAYLOAD
 )
           
           # Send the request
