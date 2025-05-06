@@ -51,7 +51,8 @@ def parse_pytest_output(stdout: str) -> List[Dict[str, Any]]:
             
             # Extract module and category from file path
             path_components = file_path.split('/')
-            module = path_components[1] if len(path_components) > 1 else "unknown"
+            # If the module name ends with .py, set it to 'core'
+            module = 'core' if path_components[1].endswith('.py') else path_components[1] if len(path_components) > 1 else "unknown"
             category = path_components[2] if len(path_components) > 2 else "unknown"
             
             # Map pytest result to status
@@ -110,7 +111,8 @@ def upload_to_supabase(results: List[Dict[str, Any]]) -> bool:
     from requests.exceptions import RequestException
     
     try:
-        url = "https://xqfwqvbfjhxwqgrdcjck.supabase.co/rest/v1/user_projects"
+        # Use HTTPS for the URL
+        url = "https://xqfwqvbfjhxwqgrdcjck.supabase.co/rest/v1/rpc/update_test_results"
         headers = {
             "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxZndxdmJmamh4d3FncmRjamNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDI5MjE5NDEsImV4cCI6MjAxODQ5Nzk0MX0.ZNgjwuqmwXGdWwx3xV6EXG8pGHvpAxDOQOADxgMFSXc",
             "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxZndxdmJmamh4d3FncmRjamNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDI5MjE5NDEsImV4cCI6MjAxODQ5Nzk0MX0.ZNgjwuqmwXGdWwx3xV6EXG8pGHvpAxDOQOADxgMFSXc",
@@ -118,23 +120,46 @@ def upload_to_supabase(results: List[Dict[str, Any]]) -> bool:
             "Prefer": "return=minimal"
         }
         
+        # Convert test results to JSONB array format as expected by the database
+        tests_status = [
+            {
+                "module": result["module"],
+                "category": result["category"],
+                "test_name": result["test_name"],
+                "status": result["status"],
+                "attempted_at": result["attempted_at"],
+                "completed_at": result["completed_at"],
+                "output": result["output"]
+            }
+            for result in results
+        ]
+        
+        # Create the update data
         data = {
             "id": "4600c943-a7f9-4efc-ad50-615921f9bf00",
-            "tests_status": results
+            "tests_status": tests_status,
+            "updated_at": datetime.now(timezone.utc).isoformat()
         }
         
         # Print request data for debugging
         print("\nSending to Supabase:", file=sys.stderr)
         print(f"URL: {url}", file=sys.stderr)
+        print("Headers:", json.dumps(headers, indent=2), file=sys.stderr)
         print("Data:", json.dumps(data, indent=2), file=sys.stderr)
         
-        response = requests.post(url, headers=headers, json=data, timeout=30)
+        # Make the request with a timeout
+        response = requests.patch(
+            url, 
+            headers=headers,
+            json=data,
+            timeout=30
+        )
         
         print(f"\nSupabase Response:", file=sys.stderr)
         print(f"Status Code: {response.status_code}", file=sys.stderr)
         print(f"Response Body: {response.text}", file=sys.stderr)
         
-        if response.status_code not in (200, 201):
+        if response.status_code not in (200, 201, 204):
             print(f"Error uploading to Supabase. Status code: {response.status_code}", file=sys.stderr)
             print(f"Response: {response.text}", file=sys.stderr)
             return False
