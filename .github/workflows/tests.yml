@@ -35,78 +35,18 @@ jobs:
           if [ -f "requirements.txt" ]; then
             pip install -r requirements.txt
           fi
-          pip install pytest==7.4.3 pytest-json-report==1.5.0 requests==2.31.0
+          pip install pytest requests
 
-      - name: Run Python tests
-        env:
-          TIMESTAMP: "${{ steps.timestamp.outputs.timestamp }}"
+      - name: Run tests and process results
         run: |
           set -euo pipefail
+          # Make the script executable
+          chmod +x src/app/lib/process_test_results.py
           
-          # Set timestamp
-          echo "TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_ENV
-          
-          echo "Running pytest on all tests..."
-          
-          # Create test output directory
-          mkdir -p test_output
-          
-          # Run pytest with JSON reporting
-          pytest tests/ \
-            --json-report \
-            --json-report-file="test_output/report.json" \
-            -v 2>&1 | tee test_output/test_output.txt || true
-          
-          # Make the Python script executable
-          chmod +x .github/workflows/process_test_results.py
-          
-          # Process test results using the Python script
-          .github/workflows/process_test_results.py > test_output/test_results.json
-          
-          echo "Final test results:"
-          cat test_output/test_results.json
-          
-          # Upload results to Supabase with error handling
-          echo "Uploading results to Supabase..."
-          
-          # Validate JSON before sending
-          if ! jq empty test_output/test_results.json 2>/dev/null; then
-            echo "Error: Invalid JSON generated"
-            exit 1
-          fi
-          
-          # Create the JSON payload with proper escaping
-          json_payload=$(jq -n \
-            --arg id "4600c943-a7f9-4efc-ad50-615921f9bf00" \
-            --slurpfile tests test_output/test_results.json \
-            '{id: $id, tests_status: $tests[0]}')
-          
-          # Send the request with proper error handling
-          response=$(curl -s -w "\n%{http_code}" -X POST \
-            'https://xqfwqvbfjhxwqgrdcjck.supabase.co/rest/v1/user_projects' \
-            -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxZndxdmJmamh4d3FncmRjamNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDI5MjE5NDEsImV4cCI6MjAxODQ5Nzk0MX0.ZNgjwuqmwXGdWwx3xV6EXG8pGHvpAxDOQOADxgMFSXc" \
-            -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxZndxdmJmamh4d3FncmRjamNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDI5MjE5NDEsImV4cCI6MjAxODQ5Nzk0MX0.ZNgjwuqmwXGdWwx3xV6EXG8pGHvpAxDOQOADxgMFSXc" \
-            -H "Content-Type: application/json" \
-            -H "Prefer: return=minimal" \
-            --data "$json_payload")
-          
-          http_code=$(echo "$response" | tail -n1)
-          response_body=$(echo "$response" | sed '$d')
-          
-          if [ "$http_code" -ne 201 ] && [ "$http_code" -ne 200 ]; then
-            echo "Error uploading to Supabase. Status code: $http_code"
-            echo "Response: $response_body"
-            exit 1
-          fi
+          # Run the script to execute tests and upload results
+          python src/app/lib/process_test_results.py
 
       - name: Notify completion
         if: always()
         run: |
-          set -euo pipefail
-          echo "Test run completed. Results have been uploaded to Supabase."
-          if [ -f "test_output/test_output.txt" ]; then
-            echo "Test output:"
-            cat test_output/test_output.txt
-          else
-            echo "No test output available"
-          fi 
+          echo "Test run completed." 
