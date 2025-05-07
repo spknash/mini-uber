@@ -49,4 +49,4 @@ jobs:
       - name: Notify completion
         if: always()
         run: |
-          echo "Test run completed." 
+          echo "Test run completed."
