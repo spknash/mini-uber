@@ -31,10 +31,11 @@ def parse_pytest_output(stdout: str) -> List[Dict[str, Any]]:
     
     # Regular expression to match pytest output lines
     # Example: test_file.py::test_function PASSED
-    test_pattern = re.compile(r'^(.+?)\s+(PASSED|FAILED|SKIPPED|ERROR|XFAIL|XPASS)(?:\s+\[.*?\])?$')
+    test_pattern = re.compile(r'^(.+?)s+(PASSED|FAILED|SKIPPED|ERROR|XFAIL|XPASS)(?:s+[.*?])?$')
     
     # Split output into lines and process each test result
-    for line in stdout.split('\n'):
+    for line in stdout.split('
+'):
         line = line.strip()
         if not line:
             continue
@@ -249,4 +250,4 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    main() 
+    main()
